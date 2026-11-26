@@ -6,12 +6,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from curl_cffi import requests as cffi_requests
 
-
-
 PORT = int(os.environ.get("PORT", 10000))
 ALLOWED_CHARS = {"Teiza", "SteveDzs", "Snowflake"}
 SIEL_API = "https://siel.tools"
-NOTICE_LIST_URL = "https://aion2.plaync.com/en-us/board/notice/list"
+NOTICE_LIST_URL = "https://plaync.com"
 UPDATE_LIST_URL = "https://plaync.com"
 
 CHAR_STORE = {
@@ -104,7 +102,7 @@ def scrape_board(url, board_type):
             if len(title) > 4:
                 found.append({
                     "title": title,
-                    "url": f"https://aion2.plaync.com{href}",
+                    "url": f"https://plaync.com{href}",
                     "source": "NCSOFT Official",
                 })
             if len(found) >= 5:
@@ -124,24 +122,19 @@ def fetch_official_news():
     if not items:
         items = [
             {
-                "title": "[Notice] Patch Notes | Nov. 25",
-                "url": "https://aion2.plaync.com/en-us/board/update/view?articleId=6b0695806b68bef8bae9148e",
+                "title": "Patch Notes | Nov. 25",
+                "url": UPDATE_LIST_URL,
                 "source": "NCSOFT Patch Notes",
             },
             {
-                "title": "[Notice] Updates to AION2 Operational Policy",
-                "url": "https://aion2.plaync.com/en-us/board/notice/view?articleId=6b0560208a3bbc3e012690f8",
-                "source": "NCSOFT Official",
-            },
-            {
-                "title": "[Notice] AION 2 Season 2 Roadmap",
-                "url": "https://aion2.plaync.com/en-us/board/notice/view?articleId=6b04bc90d66fab562628226c",
-                "source": "NCSOFT Official",
-            },
-            {
-                "title": "All Official AION 2 Announcements",
+                "title": "Official Notices & Maintenance Schedule",
                 "url": NOTICE_LIST_URL,
-                "source": "PlayNC Board",
+                "source": "NCSOFT Official",
+            },
+            {
+                "title": "AION 2 Season 2 Roadmap & Updates",
+                "url": NOTICE_LIST_URL,
+                "source": "NCSOFT Official",
             },
         ]
 
@@ -224,7 +217,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(fetch_official_news())
             return
 
-        self._send_json({"status": "AION 2 Twitch Extension Backend Running", "characters": list(CHAR_STORE.keys())})
+        self._send_json({
+            "status": "AION 2 Twitch Extension Backend Running",
+            "characters": list(CHAR_STORE.keys()),
+        })
 
 
 if __name__ == "__main__":
