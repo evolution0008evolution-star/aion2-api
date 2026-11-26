@@ -6,6 +6,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 from curl_cffi import requests as cffi_requests
 
+
+
 PORT = int(os.environ.get("PORT", 10000))
 ALLOWED_CHARS = {"Teiza", "SteveDzs", "Snowflake"}
 SIEL_API = "https://siel.tools"
