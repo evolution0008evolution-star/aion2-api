@@ -7,67 +7,37 @@ from urllib.parse import urlparse, parse_qs
 from curl_cffi import requests as cffi_requests
 
 PORT = int(os.environ.get("PORT", 10000))
-SIEL_BASE = "https://siel.tools/api/players/eu"
+SIEL_API = "https://siel.tools/api/players/eu/"
 NOTICE_LIST_URL = "https://aion2.plaync.com/en-us/board/notice/list"
 UPDATE_LIST_URL = "https://aion2.plaync.com/en-us/board/update/list"
 
-EU_SERVERS = {
-    "nemon": "2309",
-    "hithanya": "2301",
-    "siel": "2302",
-    "israphel": "2303",
-    "nezekan": "2304",
-    "zikel": "2305",
-    "vaizel": "2306",
-    "triniel": "2307",
-    "kaisinel": "2308",
-    "lumiel": "2310",
-    "yustiel": "2311",
-    "marchutan": "2312",
-    "ariel": "2313",
-    "azphel": "2314",
-    "fregion": "2315",
-    "ereshkigal": "2316",
-    "meslamtaeda": "2317",
-    "beritra": "2318",
-    "nania": "2319",
-    "hadala": "2320",
-    "tahavatha": "2321",
-    "ludra": "2322",
-    "luteros": "2323",
-    "ulgorn": "2324",
-    "phernos": "2325",
-    "munin": "2326",
-    "daminu": "2327",
-    "odar": "2328",
-    "kasaka": "2329",
-    "zemurru": "2330",
-    "bakarma": "2331",
-    "kromede": "2332",
-    "tsenka": "2333",
-    "quai": "2334",
-    "kochi": "2335",
-    "baba": "2336",
+SERVER_IDS = {
+    "Nemon": "2309",
+    "Hithanya": "2301",
+    "Siel": "2302",
+    "Israphel": "2303",
+    "Nezekan": "2304",
+    "Zikel": "2305",
+    "Vaizel": "2306",
+    "Triniel": "2307",
+    "Kaisinel": "2308",
+    "Lumiel": "2310",
+    "Yustiel": "2311",
+    "Marchutan": "2312",
+    "Ariel": "2313",
+    "Azphel": "2314",
 }
 
 CHAR_STORE = {
-    "nemon:teiza": {
-        "updatedAt": int(time.time()),
-        "server": "Nemon",
+    "Nemon:Teiza": {
         "player": {
             "name": "Teiza",
+            "server": "Nemon",
             "level": 45,
             "className": "Ranger",
             "combatPower": 148895,
             "itemLevel": 2509,
-            "stats": {
-                "Might": 23,
-                "Dexterity": 4,
-                "Precision": 50,
-                "Willpower": 14,
-                "Intelligence": 0,
-                "Constitution": 5,
-            },
+            "stats": {"Might": 23, "Dexterity": 4, "Precision": 50, "Willpower": 14, "Intelligence": 0, "Constitution": 5},
             "daevanion": [
                 {"name": "Nezekan", "unlocked": 63, "total": 88},
                 {"name": "Zikel", "unlocked": 56, "total": 88},
@@ -75,25 +45,17 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 67, "total": 116},
                 {"name": "Azphel", "unlocked": 21, "total": 152},
             ],
-        },
+        }
     },
-    "nemon:stevedzs": {
-        "updatedAt": int(time.time()),
-        "server": "Nemon",
+    "Nemon:SteveDzs": {
         "player": {
             "name": "SteveDzs",
+            "server": "Nemon",
             "level": 45,
             "className": "Assassin",
             "combatPower": 130562,
             "itemLevel": 2423,
-            "stats": {
-                "Might": 17,
-                "Dexterity": 16,
-                "Precision": 38,
-                "Willpower": 0,
-                "Intelligence": 0,
-                "Constitution": 28,
-            },
+            "stats": {"Might": 17, "Dexterity": 16, "Precision": 38, "Willpower": 0, "Intelligence": 0, "Constitution": 28},
             "daevanion": [
                 {"name": "Nezekan", "unlocked": 65, "total": 88},
                 {"name": "Zikel", "unlocked": 55, "total": 88},
@@ -101,25 +63,17 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 64, "total": 116},
                 {"name": "Azphel", "unlocked": 13, "total": 152},
             ],
-        },
+        }
     },
-    "nemon:snowflake": {
-        "updatedAt": int(time.time()),
-        "server": "Nemon",
+    "Nemon:Snowflake": {
         "player": {
             "name": "Snowflake",
+            "server": "Nemon",
             "level": 45,
             "className": "Gladiator",
             "combatPower": 104835,
             "itemLevel": 2096,
-            "stats": {
-                "Might": 31,
-                "Dexterity": 35,
-                "Precision": 9,
-                "Willpower": 23,
-                "Intelligence": 23,
-                "Constitution": 5,
-            },
+            "stats": {"Might": 31, "Dexterity": 35, "Precision": 9, "Willpower": 23, "Intelligence": 23, "Constitution": 5},
             "daevanion": [
                 {"name": "Nezekan", "unlocked": 65, "total": 88},
                 {"name": "Zikel", "unlocked": 66, "total": 88},
@@ -127,10 +81,11 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 40, "total": 116},
                 {"name": "Azphel", "unlocked": 23, "total": 152},
             ],
-        },
+        }
     },
 }
 
+CHAR_TS = {k: time.time() for k in CHAR_STORE}
 NEWS_CACHE = {"ts": 0.0, "data": None}
 
 
@@ -169,24 +124,12 @@ def fetch_official_news():
     items = scrape_board(UPDATE_LIST_URL, "update") + scrape_board(NOTICE_LIST_URL, "notice")
     if not items:
         items = [
-            {
-                "title": "AION 2 Official Patch Notes & Updates",
-                "url": UPDATE_LIST_URL,
-                "source": "NCSOFT Patch Notes",
-            },
-            {
-                "title": "Official Notices & Maintenance Schedule",
-                "url": NOTICE_LIST_URL,
-                "source": "NCSOFT Official",
-            },
-            {
-                "title": "AION 2 Season 2 Roadmap & Events",
-                "url": NOTICE_LIST_URL,
-                "source": "NCSOFT Official",
-            },
+            {"title": "Official Patch Notes & Updates", "url": UPDATE_LIST_URL, "source": "NCSOFT Patch Notes"},
+            {"title": "Official Notices & Maintenance Schedule", "url": NOTICE_LIST_URL, "source": "NCSOFT Official"},
+            {"title": "AION 2 Season 2 Roadmap & Events", "url": NOTICE_LIST_URL, "source": "NCSOFT Official"},
         ]
 
-    result = {"items": items[:8], "updatedAt": int(now)}
+    result = {"items": items[:8]}
     NEWS_CACHE["ts"] = now
     NEWS_CACHE["data"] = result
     return result
@@ -214,24 +157,20 @@ class Handler(BaseHTTPRequestHandler):
         self._send_headers(200, "application/json; charset=utf-8", 0)
 
     def do_POST(self):
-        parsed = urlparse(self.path)
-        if parsed.path != "/push":
+        if urlparse(self.path).path != "/push":
             self._send_json({"error": "Not found"}, 404)
             return
-
         try:
             length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(length)
-            payload = json.loads(raw.decode("utf-8"))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
             name = str(payload.get("name", "")).strip()
             server = str(payload.get("server", "Nemon")).strip() or "Nemon"
             data = payload.get("data")
             if name and isinstance(data, dict):
-                key = f"{server.lower()}:{name.lower()}"
-                data["updatedAt"] = int(time.time())
-                data["server"] = server
+                key = f"{server}:{name}"
                 CHAR_STORE[key] = data
-                self._send_json({"ok": True, "updated": name, "server": server})
+                CHAR_TS[key] = time.time()
+                self._send_json({"ok": True, "updated": key})
                 return
             self._send_json({"error": "Invalid payload"}, 400)
         except Exception as e:
@@ -241,39 +180,35 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/character":
             qs = parse_qs(parsed.query)
-            name = str(qs.get("name", ["Teiza"])[0]).strip()
-            server = str(qs.get("server", ["Nemon"])[0]).strip() or "Nemon"
-            if not re.match(r"^[A-Za-z0-9_]{2,24}$", name):
-                self._send_json({"error": "Invalid character name"}, 400)
-                return
-
-            srv_slug = server.lower()
-            srv_id = EU_SERVERS.get(srv_slug, "2309")
-            key = f"{srv_slug}:{name.lower()}"
+            name = qs.get("name", ["Teiza"])[0].strip()
+            server = qs.get("server", ["Nemon"])[0].strip() or "Nemon"
+            srv_id = SERVER_IDS.get(server, "2309")
+            key = f"{server}:{name}"
 
             try:
                 resp = cffi_requests.get(
-                    f"{SIEL_BASE}/{srv_id}/{name}",
+                    f"{SIEL_API}{srv_id}/{name}",
                     impersonate="chrome",
                     headers={
                         "Accept": "application/json, text/plain, */*",
-                        "Referer": f"https://siel.tools/eu/{srv_slug}/{name}",
+                        "Referer": f"https://siel.tools/eu/{server.lower()}/{name}",
                     },
                     timeout=10,
                 )
                 if resp.status_code == 200:
                     fresh = resp.json()
                     if isinstance(fresh, dict) and "player" in fresh:
-                        fresh["updatedAt"] = int(time.time())
-                        fresh["server"] = server.capitalize()
                         CHAR_STORE[key] = fresh
+                        CHAR_TS[key] = time.time()
             except Exception:
                 pass
 
             if key in CHAR_STORE:
-                self._send_json(CHAR_STORE[key])
+                out = dict(CHAR_STORE[key])
+                out["_syncedAt"] = CHAR_TS.get(key, time.time())
+                self._send_json(out)
             else:
-                self._send_json({"error": f"Character {name} on {server} not cached yet"}, 404)
+                self._send_json({"error": f"Character {name} on {server} not found"}, 404)
             return
 
         if parsed.path == "/news":
@@ -281,13 +216,11 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._send_json({
-            "status": "AION DAEVA HUB API Running",
-            "servers": list(EU_SERVERS.keys()),
-            "cached": list(CHAR_STORE.keys()),
+            "status": "AION DAEVA HUB Backend Running",
+            "servers": list(SERVER_IDS.keys()),
+            "cachedCharacters": list(CHAR_STORE.keys()),
         })
 
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"AION DAEVA HUB Server listening on 0.0.0.0:{PORT}")
-    server.serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
