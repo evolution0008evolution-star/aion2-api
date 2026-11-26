@@ -11,6 +11,7 @@ ALLOWED_CHARS = {"Teiza", "SteveDzs", "Snowflake"}
 SIEL_API = "https://siel.tools/api/players/eu/2309/"
 NOTICE_LIST_URL = "https://aion2.plaync.com/en-us/board/notice/list"
 UPDATE_LIST_URL = "https://aion2.plaync.com/en-us/board/update/list"
+STEAM_NEWS_API = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=3393110&count=8&maxlength=300"
 
 CHAR_STORE = {
     "Teiza": {
@@ -90,12 +91,20 @@ CHAR_STORE = {
 NEWS_CACHE = {"ts": 0.0, "data": None}
 
 
-def scrape_board(url, board_type):
+def scrape_plaync_board(url, board_type):
     found = []
     try:
-        resp = cffi_requests.get(url, impersonate="chrome", timeout=15)
+        resp = cffi_requests.get(
+            url,
+            impersonate="chrome",
+            headers={
+                "Accept-Language": "en-US,en;q=0.9",
+                "Cookie": "nc_locale=en-us; language=en-us",
+            },
+            timeout=15,
+        )
         html = resp.text
-        pattern = rf'<a[^>]+href=["\'](/en-us/board/{board_type}/view\?articleId=[^"\']+)["\'][^>]*>(.*?)</a>'
+        pattern = rf'<a[^>]+href=["'](/en-us/board/{board_type}/view\?articleId=[^"']+)["'][^>]*>(.*?)</a>'
         for href, raw_title in re.findall(pattern, html, flags=re.I | re.S):
             title = re.sub(r"<[^>]+>", " ", raw_title)
             title = re.sub(r"\s+", " ", title).strip()
@@ -103,10 +112,30 @@ def scrape_board(url, board_type):
                 found.append({
                     "title": title,
                     "url": f"https://aion2.plaync.com{href}",
-                    "source": "NCSOFT Official",
+                    "source": "PlayNC Official (EN)",
                 })
             if len(found) >= 5:
                 break
+    except Exception:
+        pass
+    return found
+
+
+def fetch_steam_official_news():
+    found = []
+    try:
+        resp = cffi_requests.get(STEAM_NEWS_API, impersonate="chrome", timeout=12)
+        if resp.status_code == 200:
+            items = resp.json().get("appnews", {}).get("newsitems", [])
+            for item in items:
+                title = str(item.get("title", "")).strip()
+                url = str(item.get("url", "")).strip()
+                if title and url:
+                    found.append({
+                        "title": title,
+                        "url": url,
+                        "source": "NCSOFT Official News",
+                    })
     except Exception:
         pass
     return found
@@ -117,24 +146,32 @@ def fetch_official_news():
     if NEWS_CACHE["data"] and now - NEWS_CACHE["ts"] < 900:
         return NEWS_CACHE["data"]
 
-    items = scrape_board(UPDATE_LIST_URL, "update") + scrape_board(NOTICE_LIST_URL, "notice")
+    items = scrape_plaync_board(UPDATE_LIST_URL, "update") + scrape_plaync_board(NOTICE_LIST_URL, "notice")
+
+    if not items:
+        items = fetch_steam_official_news()
 
     if not items:
         items = [
             {
-                "title": "Patch Notes & Game Updates",
+                "title": "[Notice] Patch Notes | Nov. 25",
+                "url": "https://aion2.plaync.com/en-us/board/update/view?articleId=6b0695806b68bef8bae9148e",
+                "source": "PlayNC Patch Notes",
+            },
+            {
+                "title": "[Notice] Updates to AION2 Operational Policy",
+                "url": "https://aion2.plaync.com/en-us/board/notice/view?articleId=6b0560208a3bbc3e012690f8",
+                "source": "PlayNC Official",
+            },
+            {
+                "title": "AION 2 Official Updates Board (EN)",
                 "url": UPDATE_LIST_URL,
-                "source": "NCSOFT Official",
+                "source": "PlayNC Board",
             },
             {
-                "title": "Official Notices & Maintenance Schedule",
+                "title": "AION 2 Official Notices Board (EN)",
                 "url": NOTICE_LIST_URL,
-                "source": "NCSOFT Official",
-            },
-            {
-                "title": "AION 2 Season 2 Roadmap & Announcements",
-                "url": NOTICE_LIST_URL,
-                "source": "NCSOFT Official",
+                "source": "PlayNC Board",
             },
         ]
 
