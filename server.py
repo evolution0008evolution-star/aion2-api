@@ -7,14 +7,53 @@ from urllib.parse import urlparse, parse_qs
 from curl_cffi import requests as cffi_requests
 
 PORT = int(os.environ.get("PORT", 10000))
-ALLOWED_CHARS = {"Teiza", "SteveDzs", "Snowflake"}
-SIEL_API = "https://siel.tools/api/players/eu/2309/"
+SIEL_BASE = "https://siel.tools/api/players/eu"
 NOTICE_LIST_URL = "https://aion2.plaync.com/en-us/board/notice/list"
 UPDATE_LIST_URL = "https://aion2.plaync.com/en-us/board/update/list"
-STEAM_NEWS_API = "https://api.steampowered.com/ISteamNews/GetNewsForApp/v2/?appid=3393110&count=8&maxlength=300"
+
+EU_SERVERS = {
+    "nemon": "2309",
+    "hithanya": "2301",
+    "siel": "2302",
+    "israphel": "2303",
+    "nezekan": "2304",
+    "zikel": "2305",
+    "vaizel": "2306",
+    "triniel": "2307",
+    "kaisinel": "2308",
+    "lumiel": "2310",
+    "yustiel": "2311",
+    "marchutan": "2312",
+    "ariel": "2313",
+    "azphel": "2314",
+    "fregion": "2315",
+    "ereshkigal": "2316",
+    "meslamtaeda": "2317",
+    "beritra": "2318",
+    "nania": "2319",
+    "hadala": "2320",
+    "tahavatha": "2321",
+    "ludra": "2322",
+    "luteros": "2323",
+    "ulgorn": "2324",
+    "phernos": "2325",
+    "munin": "2326",
+    "daminu": "2327",
+    "odar": "2328",
+    "kasaka": "2329",
+    "zemurru": "2330",
+    "bakarma": "2331",
+    "kromede": "2332",
+    "tsenka": "2333",
+    "quai": "2334",
+    "kochi": "2335",
+    "baba": "2336",
+}
 
 CHAR_STORE = {
-    "Teiza": {
+    "nemon:teiza": {
+        "updatedAt": int(time.time()),
+        "server": "Nemon",
         "player": {
             "name": "Teiza",
             "level": 45,
@@ -36,9 +75,11 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 67, "total": 116},
                 {"name": "Azphel", "unlocked": 21, "total": 152},
             ],
-        }
+        },
     },
-    "SteveDzs": {
+    "nemon:stevedzs": {
+        "updatedAt": int(time.time()),
+        "server": "Nemon",
         "player": {
             "name": "SteveDzs",
             "level": 45,
@@ -60,9 +101,11 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 64, "total": 116},
                 {"name": "Azphel", "unlocked": 13, "total": 152},
             ],
-        }
+        },
     },
-    "Snowflake": {
+    "nemon:snowflake": {
+        "updatedAt": int(time.time()),
+        "server": "Nemon",
         "player": {
             "name": "Snowflake",
             "level": 45,
@@ -84,23 +127,20 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 40, "total": 116},
                 {"name": "Azphel", "unlocked": 23, "total": 152},
             ],
-        }
+        },
     },
 }
 
 NEWS_CACHE = {"ts": 0.0, "data": None}
 
 
-def scrape_plaync_board(url, board_type):
+def scrape_board(url, board_type):
     found = []
     try:
         resp = cffi_requests.get(
             url,
             impersonate="chrome",
-            headers={
-                "Accept-Language": "en-US,en;q=0.9",
-                "Cookie": "nc_locale=en-us; language=en-us",
-            },
+            headers={"Accept-Language": "en-US,en;q=0.9"},
             timeout=15,
         )
         html = resp.text
@@ -112,30 +152,10 @@ def scrape_plaync_board(url, board_type):
                 found.append({
                     "title": title,
                     "url": f"https://aion2.plaync.com{href}",
-                    "source": "PlayNC Official (EN)",
+                    "source": "NCSOFT Official",
                 })
             if len(found) >= 5:
                 break
-    except Exception:
-        pass
-    return found
-
-
-def fetch_steam_official_news():
-    found = []
-    try:
-        resp = cffi_requests.get(STEAM_NEWS_API, impersonate="chrome", timeout=12)
-        if resp.status_code == 200:
-            items = resp.json().get("appnews", {}).get("newsitems", [])
-            for item in items:
-                title = str(item.get("title", "")).strip()
-                url = str(item.get("url", "")).strip()
-                if title and url:
-                    found.append({
-                        "title": title,
-                        "url": url,
-                        "source": "NCSOFT Official News",
-                    })
     except Exception:
         pass
     return found
@@ -146,36 +166,27 @@ def fetch_official_news():
     if NEWS_CACHE["data"] and now - NEWS_CACHE["ts"] < 900:
         return NEWS_CACHE["data"]
 
-    items = scrape_plaync_board(UPDATE_LIST_URL, "update") + scrape_plaync_board(NOTICE_LIST_URL, "notice")
-
-    if not items:
-        items = fetch_steam_official_news()
-
+    items = scrape_board(UPDATE_LIST_URL, "update") + scrape_board(NOTICE_LIST_URL, "notice")
     if not items:
         items = [
             {
-                "title": "[Notice] Patch Notes | Nov. 25",
-                "url": "https://aion2.plaync.com/en-us/board/update/view?articleId=6b0695806b68bef8bae9148e",
-                "source": "PlayNC Patch Notes",
-            },
-            {
-                "title": "[Notice] Updates to AION2 Operational Policy",
-                "url": "https://aion2.plaync.com/en-us/board/notice/view?articleId=6b0560208a3bbc3e012690f8",
-                "source": "PlayNC Official",
-            },
-            {
-                "title": "AION 2 Official Updates Board (EN)",
+                "title": "AION 2 Official Patch Notes & Updates",
                 "url": UPDATE_LIST_URL,
-                "source": "PlayNC Board",
+                "source": "NCSOFT Patch Notes",
             },
             {
-                "title": "AION 2 Official Notices Board (EN)",
+                "title": "Official Notices & Maintenance Schedule",
                 "url": NOTICE_LIST_URL,
-                "source": "PlayNC Board",
+                "source": "NCSOFT Official",
+            },
+            {
+                "title": "AION 2 Season 2 Roadmap & Events",
+                "url": NOTICE_LIST_URL,
+                "source": "NCSOFT Official",
             },
         ]
 
-    result = {"items": items[:8]}
+    result = {"items": items[:8], "updatedAt": int(now)}
     NEWS_CACHE["ts"] = now
     NEWS_CACHE["data"] = result
     return result
@@ -212,42 +223,57 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             raw = self.rfile.read(length)
             payload = json.loads(raw.decode("utf-8"))
-            name = payload.get("name")
+            name = str(payload.get("name", "")).strip()
+            server = str(payload.get("server", "Nemon")).strip() or "Nemon"
             data = payload.get("data")
-            if name in ALLOWED_CHARS and isinstance(data, dict):
-                CHAR_STORE[name] = data
-                self._send_json({"ok": True, "updated": name})
+            if name and isinstance(data, dict):
+                key = f"{server.lower()}:{name.lower()}"
+                data["updatedAt"] = int(time.time())
+                data["server"] = server
+                CHAR_STORE[key] = data
+                self._send_json({"ok": True, "updated": name, "server": server})
                 return
-            self._send_json({"error": "Invalid character payload"}, 400)
+            self._send_json({"error": "Invalid payload"}, 400)
         except Exception as e:
             self._send_json({"error": str(e)}, 400)
 
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/character":
-            name = parse_qs(parsed.query).get("name", ["Teiza"])[0]
-            if name not in ALLOWED_CHARS:
-                self._send_json({"error": "Character not allowed"}, 400)
+            qs = parse_qs(parsed.query)
+            name = str(qs.get("name", ["Teiza"])[0]).strip()
+            server = str(qs.get("server", ["Nemon"])[0]).strip() or "Nemon"
+            if not re.match(r"^[A-Za-z0-9_]{2,24}$", name):
+                self._send_json({"error": "Invalid character name"}, 400)
                 return
+
+            srv_slug = server.lower()
+            srv_id = EU_SERVERS.get(srv_slug, "2309")
+            key = f"{srv_slug}:{name.lower()}"
 
             try:
                 resp = cffi_requests.get(
-                    f"{SIEL_API}{name}",
+                    f"{SIEL_BASE}/{srv_id}/{name}",
                     impersonate="chrome",
                     headers={
                         "Accept": "application/json, text/plain, */*",
-                        "Referer": f"https://siel.tools/eu/nemon/{name}",
+                        "Referer": f"https://siel.tools/eu/{srv_slug}/{name}",
                     },
                     timeout=10,
                 )
                 if resp.status_code == 200:
                     fresh = resp.json()
                     if isinstance(fresh, dict) and "player" in fresh:
-                        CHAR_STORE[name] = fresh
+                        fresh["updatedAt"] = int(time.time())
+                        fresh["server"] = server.capitalize()
+                        CHAR_STORE[key] = fresh
             except Exception:
                 pass
 
-            self._send_json(CHAR_STORE[name])
+            if key in CHAR_STORE:
+                self._send_json(CHAR_STORE[key])
+            else:
+                self._send_json({"error": f"Character {name} on {server} not cached yet"}, 404)
             return
 
         if parsed.path == "/news":
@@ -255,12 +281,13 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         self._send_json({
-            "status": "AION 2 Twitch Extension Backend Running",
-            "characters": list(CHAR_STORE.keys()),
+            "status": "AION DAEVA HUB API Running",
+            "servers": list(EU_SERVERS.keys()),
+            "cached": list(CHAR_STORE.keys()),
         })
 
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"Server listening on 0.0.0.0:{PORT}")
+    print(f"AION DAEVA HUB Server listening on 0.0.0.0:{PORT}")
     server.serve_forever()
