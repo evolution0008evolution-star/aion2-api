@@ -1,154 +1,124 @@
-#!/usr/bin/env python3
-"""24/7 Cloud Backend for AION 2 Twitch Video Overlay Extension."""
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
 import json
 import os
 import re
-import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 from curl_cffi import requests as cffi_requests
 
-PORT = int(os.environ.get("PORT", 8765))
+PORT = int(os.environ.get("PORT", 10000))
 ALLOWED_CHARS = {"Teiza", "SteveDzs", "Snowflake"}
 SIEL_API = "https://siel.tools/api/players/eu/2309/"
 OFFICIAL_NEWS_URL = "https://aion2.plaync.com/en-us/board/notice"
 
 CACHE = {}
-CACHE_LOCK = threading.RLock()
-FETCH_LOCK = threading.Lock()
-LAST_REQ = 0.0
+CACHE_TTL = 180
 
-def get_cached(key, ttl):
-    with CACHE_LOCK:
-        entry = CACHE.get(key)
-        if entry and time.time() - entry[0] < ttl:
-            return entry[1]
-    return None
 
-def set_cached(key, data):
-    with CACHE_LOCK:
-        CACHE[key] = (time.time(), data)
+def fetch_siel_char(name):
+    now = time.time()
+    key = f"char:{name}"
+    if key in CACHE and now - CACHE[key][0] < CACHE_TTL:
+        return CACHE[key][1]
 
-def parse_plaync_news(html):
+    resp = cffi_requests.get(
+        f"{SIEL_API}{name}",
+        impersonate="chrome",
+        headers={
+            "Accept": "application/json, text/plain, */*",
+            "Referer": f"https://siel.tools/eu/nemon/{name}",
+        },
+        timeout=20,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    CACHE[key] = (now, data)
+    return data
+
+
+def fetch_official_news():
+    now = time.time()
+    key = "news"
+    if key in CACHE and now - CACHE[key][0] < 900:
+        return CACHE[key][1]
+
     items = []
-    pattern = re.compile(r'<a[^>]+href=["\'](/en-us/board/notice/view\?articleId=[^"\']+)["\'][^>]*>(.*?)</a>', re.I | re.S)
-    for href, raw_title in pattern.findall(html):
-        title = re.sub(r'<[^>]+>', ' ', raw_title)
-        title = re.sub(r'\s+', ' ', title).strip()
-        if len(title) > 4:
-            items.append({
-                "title": title,
-                "url": f"https://aion2.plaync.com{href}",
-                "source": "NCSOFT Official"
-            })
-        if len(items) >= 8:
-            break
+    try:
+        resp = cffi_requests.get(OFFICIAL_NEWS_URL, impersonate="chrome", timeout=20)
+        html = resp.text
+        matches = re.findall(
+            r'<a[^>]+href=["\'](/en-us/board/notice/view\?articleId=[^"\']+)["\'][^>]*>(.*?)</a>',
+            html,
+            flags=re.I | re.S,
+        )
+        for href, raw_title in matches:
+            title = re.sub(r"<[^>]+>", " ", raw_title)
+            title = re.sub(r"\s+", " ", title).strip()
+            if len(title) > 4:
+                items.append({
+                    "title": title,
+                    "url": f"https://aion2.plaync.com{href}",
+                    "source": "NCSOFT Official",
+                })
+            if len(items) >= 8:
+                break
+    except Exception:
+        pass
+
     if not items:
         items = [
             {"title": "AION 2 Official Notices & Patch Notes", "url": OFFICIAL_NEWS_URL, "source": "NCSOFT Official"},
-            {"title": "Server Status & Maintenance Schedule", "url": OFFICIAL_NEWS_URL, "source": "NCSOFT Official"}
+            {"title": "Server Status & Maintenance Schedule", "url": OFFICIAL_NEWS_URL, "source": "NCSOFT Official"},
         ]
-    return items
+
+    result = {"items": items}
+    CACHE[key] = (now, result)
+    return result
+
 
 class Handler(BaseHTTPRequestHandler):
-    def _send_json(self, payload, status=200):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    def _send_headers(self, status=200, content_type="application/json; charset=utf-8", length=0):
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Content-Length", str(length))
         self.end_headers()
+
+    def _send_json(self, obj, status=200):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self._send_headers(status, "application/json; charset=utf-8", len(body))
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
+        self._send_headers(204, "text/plain", 0)
+
+    def do_HEAD(self):
+        self._send_headers(200, "application/json; charset=utf-8", 0)
 
     def do_GET(self):
-        global LAST_REQ
         parsed = urlparse(self.path)
-
-        if parsed.path in ("/", "/health"):
-            self._send_json({"status": "AION 2 Twitch Extension API Running"})
-            return
-
         if parsed.path == "/character":
             name = parse_qs(parsed.query).get("name", ["Teiza"])[0]
             if name not in ALLOWED_CHARS:
                 self._send_json({"error": "Character not allowed"}, 400)
                 return
-
-            cached = get_cached(f"char:{name}", 180)
-            if cached:
-                self._send_json(cached)
-                return
-
-            with FETCH_LOCK:
-                cached = get_cached(f"char:{name}", 180)
-                if cached:
-                    self._send_json(cached)
-                    return
-
-                wait = 4.0 - (time.time() - LAST_REQ)
-                if wait > 0:
-                    time.sleep(wait)
-                LAST_REQ = time.time()
-
-                try:
-                    resp = cffi_requests.get(
-                        f"{SIEL_API}{name}",
-                        impersonate="chrome",
-                        headers={
-                            "Accept": "application/json, text/plain, */*",
-                            "Accept-Language": "en-US,en;q=0.9",
-                            "Referer": f"https://siel.tools/eu/nemon/{name}",
-                        },
-                        timeout=20,
-                    )
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        set_cached(f"char:{name}", data)
-                        self._send_json(data)
-                        return
-                    self._send_json({"error": f"Siel API HTTP {resp.status_code}"}, 502)
-                except Exception as e:
-                    self._send_json({"error": str(e)}, 502)
+            try:
+                data = fetch_siel_char(name)
+                self._send_json(data)
+            except Exception as e:
+                self._send_json({"error": str(e)}, 502)
             return
 
         if parsed.path == "/news":
-            cached = get_cached("news", 900)
-            if cached:
-                self._send_json(cached)
-                return
-
-            try:
-                resp = cffi_requests.get(
-                    OFFICIAL_NEWS_URL,
-                    impersonate="chrome",
-                    headers={"Accept": "text/html,application/xhtml+xml"},
-                    timeout=20,
-                )
-                items = parse_plaync_news(resp.text)
-                payload = {"items": items}
-                set_cached("news", payload)
-                self._send_json(payload)
-            except Exception:
-                self._send_json({
-                    "items": [
-                        {"title": "AION 2 Official Notices & Patch Notes", "url": OFFICIAL_NEWS_URL, "source": "NCSOFT Official"}
-                    ]
-                })
+            self._send_json(fetch_official_news())
             return
 
-        self._send_json({"error": "Not found"}, 404)
+        self._send_json({"status": "AION 2 Twitch Extension Backend Running"})
+
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"Server listening on port {PORT}")
+    print(f"Server listening on 0.0.0.0:{PORT}")
     server.serve_forever()
