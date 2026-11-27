@@ -37,7 +37,14 @@ CHAR_STORE = {
             "className": "Ranger",
             "combatPower": 148895,
             "itemLevel": 2509,
-            "stats": {"Might": 23, "Dexterity": 4, "Precision": 50, "Willpower": 14, "Intelligence": 0, "Constitution": 5},
+            "stats": {
+                "Might": 23,
+                "Dexterity": 4,
+                "Precision": 50,
+                "Willpower": 14,
+                "Intelligence": 0,
+                "Constitution": 5,
+            },
             "daevanion": [
                 {"name": "Nezekan", "unlocked": 63, "total": 88},
                 {"name": "Zikel", "unlocked": 56, "total": 88},
@@ -55,7 +62,14 @@ CHAR_STORE = {
             "className": "Assassin",
             "combatPower": 130562,
             "itemLevel": 2423,
-            "stats": {"Might": 17, "Dexterity": 16, "Precision": 38, "Willpower": 0, "Intelligence": 0, "Constitution": 28},
+            "stats": {
+                "Might": 17,
+                "Dexterity": 16,
+                "Precision": 38,
+                "Willpower": 0,
+                "Intelligence": 0,
+                "Constitution": 28,
+            },
             "daevanion": [
                 {"name": "Nezekan", "unlocked": 65, "total": 88},
                 {"name": "Zikel", "unlocked": 55, "total": 88},
@@ -73,7 +87,14 @@ CHAR_STORE = {
             "className": "Gladiator",
             "combatPower": 104835,
             "itemLevel": 2096,
-            "stats": {"Might": 31, "Dexterity": 35, "Precision": 9, "Willpower": 23, "Intelligence": 23, "Constitution": 5},
+            "stats": {
+                "Might": 31,
+                "Dexterity": 35,
+                "Precision": 9,
+                "Willpower": 23,
+                "Intelligence": 23,
+                "Constitution": 5,
+            },
             "daevanion": [
                 {"name": "Nezekan", "unlocked": 65, "total": 88},
                 {"name": "Zikel", "unlocked": 66, "total": 88},
@@ -186,7 +207,7 @@ def scrape_board(url, board_type):
             timeout=15,
         )
         html = resp.text
-        pattern = rf'<a[^>]+href=["'](/en-us/board/{board_type}/view\?articleId=[^"']+)["'][^>]*>(.*?)</a>'
+        pattern = rf'<a[^>]+href="(/en-us/board/{board_type}/view\?articleId=[^"]+)"[^>]*>(.*?)</a>'
         for href, raw_title in re.findall(pattern, html, flags=re.I | re.S):
             title = re.sub(r"<[^>]+>", " ", raw_title)
             title = re.sub(r"\s+", " ", title).strip()
@@ -281,6 +302,4 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"Server listening on 0.0.0.0:{PORT}")
-    server.serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
