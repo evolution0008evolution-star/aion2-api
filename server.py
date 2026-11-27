@@ -277,8 +277,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(fetch_official_news())
             return
 
-        self._send_json({"status": "AION DAEVA HUB Backend Running", "cached": len(CHAR_STORE)})
+        self._send_json({"status": "AION DAEVA HUB Backend Running", "version": "0.0.10", "cached": len(CHAR_STORE)})
 
 
 if __name__ == "__main__":
-    ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
+    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    print(f"Server listening on 0.0.0.0:{PORT}")
+    server.serve_forever()
