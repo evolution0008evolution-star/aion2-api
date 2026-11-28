@@ -52,35 +52,6 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 67, "total": 116},
                 {"name": "Azphel", "unlocked": 21, "total": 152},
             ],
-            "equipment": [
-                {
-                    "slot": "Main Hand",
-                    "name": "Kaisinel's Gale Longbow",
-                    "grade": "mythic",
-                    "enchant": 15,
-                    "icon": "https://siel.tools/icons/items/bow_mythic.png",
-                    "passives": ["Crit Strike +145", "Physical Attack +98", "Attack Speed +19%", "Manastone: Precision +12"],
-                    "actives": ["Active: Gale Piercing Shot (15% chance on hit to deal 1,420 Wind DMG)"]
-                },
-                {
-                    "slot": "Chest",
-                    "name": "Dark Dragon King's Jerkin",
-                    "grade": "eternal",
-                    "enchant": 12,
-                    "icon": "https://siel.tools/icons/items/leather_chest.png",
-                    "passives": ["Max HP +1,240", "Physical Defense +310", "Evasion +85"],
-                    "actives": ["Active: Shadow Veil (Reduces incoming AoE damage by 10% for 6s)"]
-                },
-                {
-                    "slot": "Necklace",
-                    "name": "Sunayaka's Crimson Necklace",
-                    "grade": "mythic",
-                    "enchant": 10,
-                    "icon": "https://siel.tools/icons/items/necklace_crimson.png",
-                    "passives": ["PvP Attack +4.5%", "Accuracy +110", "Crit Strike +65"],
-                    "actives": []
-                }
-            ],
         }
     },
     "nemon:stevedzs": {
@@ -105,26 +76,6 @@ CHAR_STORE = {
                 {"name": "Vaizel", "unlocked": 56, "total": 88},
                 {"name": "Triniel", "unlocked": 64, "total": 116},
                 {"name": "Azphel", "unlocked": 13, "total": 152},
-            ],
-            "equipment": [
-                {
-                    "slot": "Main Hand",
-                    "name": "Zikel's Shadow Dagger",
-                    "grade": "mythic",
-                    "enchant": 15,
-                    "icon": "https://siel.tools/icons/items/dagger_mythic.png",
-                    "passives": ["Crit Strike +160", "Backstab Damage +12%", "Attack Speed +19%"],
-                    "actives": ["Active: Venomous Ambush (Applies 4s Bleed & reduces target healing by 25%)"]
-                },
-                {
-                    "slot": "Off Hand",
-                    "name": "Enraged Watcher's Sword",
-                    "grade": "eternal",
-                    "enchant": 13,
-                    "icon": "https://siel.tools/icons/items/sword_eternal.png",
-                    "passives": ["Physical Attack +84", "Accuracy +95", "Crit Strike +70"],
-                    "actives": []
-                }
             ],
         }
     },
@@ -151,92 +102,11 @@ CHAR_STORE = {
                 {"name": "Triniel", "unlocked": 40, "total": 116},
                 {"name": "Azphel", "unlocked": 23, "total": 152},
             ],
-            "equipment": [
-                {
-                    "slot": "Main Hand",
-                    "name": "Tiamat Guard's Polearm",
-                    "grade": "eternal",
-                    "enchant": 12,
-                    "icon": "https://siel.tools/icons/items/polearm_eternal.png",
-                    "passives": ["Physical Attack +135", "Crit Strike +115", "Max HP +650"],
-                    "actives": ["Active: Seismic Cleave (AoE knockdown shockwave around target)"]
-                }
-            ],
         }
     },
 }
 
 NEWS_CACHE = {"ts": 0.0, "data": None}
-
-
-def _extract_string_list(raw_field):
-    out = []
-    if isinstance(raw_field, list):
-        for entry in raw_field:
-            if isinstance(entry, str) and entry.strip():
-                out.append(entry.strip())
-            elif isinstance(entry, dict):
-                label = entry.get("name") or entry.get("stat") or entry.get("title") or entry.get("description") or ""
-                val = entry.get("value") or entry.get("amount") or ""
-                text = f"{label} {val}".strip() if val != "" else str(label).strip()
-                if text:
-                    out.append(text)
-    elif isinstance(raw_field, dict):
-        for k, v in raw_field.items():
-            out.append(f"{k}: {v}")
-    elif isinstance(raw_field, str) and raw_field.strip():
-        out.append(raw_field.strip())
-    return out
-
-
-def normalize_equipment(raw_items):
-    items_out = []
-    if isinstance(raw_items, dict):
-        raw_iter = []
-        for slot_key, item_val in raw_items.items():
-            if isinstance(item_val, dict):
-                copy_item = dict(item_val)
-                copy_item.setdefault("slot", str(slot_key))
-                raw_iter.append(copy_item)
-    elif isinstance(raw_items, list):
-        raw_iter = [x for x in raw_items if isinstance(x, dict)]
-    else:
-        return items_out
-
-    for it in raw_iter:
-        name = it.get("name") or it.get("itemName") or it.get("title") or "Unknown Item"
-        slot = it.get("slot") or it.get("slotName") or it.get("type") or "Gear"
-        grade = str(it.get("grade") or it.get("rarity") or it.get("quality") or "eternal").lower()
-        enchant = int(it.get("enchant") or it.get("enchantLevel") or it.get("enhancement") or it.get("plus") or 0)
-
-        icon = it.get("icon") or it.get("iconUrl") or it.get("image") or it.get("img") or ""
-        if icon and icon.startswith("/"):
-            icon = f"https://siel.tools{icon}"
-
-        passives = (
-            _extract_string_list(it.get("passives"))
-            + _extract_string_list(it.get("substats"))
-            + _extract_string_list(it.get("stats"))
-            + _extract_string_list(it.get("manastones"))
-            + _extract_string_list(it.get("bonuses"))
-        )
-        actives = (
-            _extract_string_list(it.get("actives"))
-            + _extract_string_list(it.get("activeSkills"))
-            + _extract_string_list(it.get("skills"))
-            + _extract_string_list(it.get("effects"))
-        )
-
-        items_out.append({
-            "slot": str(slot),
-            "name": str(name),
-            "grade": grade,
-            "enchant": enchant,
-            "icon": str(icon),
-            "passives": passives,
-            "actives": actives,
-        })
-    return items_out
 
 
 def normalize_player(raw_data, name, server):
@@ -272,17 +142,6 @@ def normalize_player(raw_data, name, server):
                     "total": int(v.get("total") or v.get("max") or 88),
                 })
 
-    raw_equip = (
-        p.get("equipment")
-        or p.get("items")
-        or p.get("gear")
-        or p.get("equipped")
-        or raw_data.get("equipment")
-        or raw_data.get("items")
-        or []
-    )
-    equipment_list = normalize_equipment(raw_equip)
-
     return {
         "player": {
             "name": str(real_name),
@@ -293,7 +152,9 @@ def normalize_player(raw_data, name, server):
             "itemLevel": int(float(il)),
             "stats": stats,
             "daevanion": daev_list,
-            "equipment": equipment_list,
+            # Keep original Siel fields (equipment, item effects, icon URLs, etc.)
+            # so the extension can display data without inventing missing values.
+            "raw": p,
         }
     }
 
@@ -326,8 +187,6 @@ def fetch_player(name, server):
             if resp.status_code == 200:
                 norm = normalize_player(resp.json(), name_clean, srv_clean)
                 if norm and (norm["player"]["combatPower"] > 0 or norm["player"]["itemLevel"] > 0):
-                    if not norm["player"]["equipment"] and key in CHAR_STORE:
-                        norm["player"]["equipment"] = CHAR_STORE[key]["player"].get("equipment", [])
                     CHAR_STORE[key] = norm
                     return norm, None
             elif resp.status_code == 404:
@@ -418,8 +277,6 @@ class Handler(BaseHTTPRequestHandler):
             norm = normalize_player(raw_data, name, server)
             if norm:
                 key = f"{server}:{name.lower()}"
-                if not norm["player"]["equipment"] and key in CHAR_STORE:
-                    norm["player"]["equipment"] = CHAR_STORE[key]["player"].get("equipment", [])
                 CHAR_STORE[key] = norm
                 self._send_json({"ok": True, "updated": key})
                 return
@@ -444,7 +301,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(fetch_official_news())
             return
 
-        self._send_json({"status": "AION DAEVA HUB Backend Running", "version": "0.0.11", "cached": len(CHAR_STORE)})
+        self._send_json({"status": "AION DAEVA HUB Backend Running", "version": "0.0.10", "cached": len(CHAR_STORE)})
 
 
 if __name__ == "__main__":
