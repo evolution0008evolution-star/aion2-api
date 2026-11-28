@@ -30,27 +30,114 @@ SLOT_NAMES = {
 }
 
 GRADE_MAP = {
-    "g-mythic": "Mythic", "g-ultimate": "Ultimate", "g-eternal": "Eternal",
-    "g-legend": "Legendary", "g-unique": "Unique", "g-fabled": "Fabled",
-    "g-heroic": "Heroic", "g-rare": "Rare", "g-special": "Special",
+    "mythic": "Mythic", "ultimate": "Ultimate", "eternal": "Eternal",
+    "legend": "Legendary", "unique": "Unique", "fabled": "Fabled",
+    "heroic": "Heroic", "rare": "Rare", "special": "Special",
 }
 
 CHAR_STORE = {}
 NEWS_CACHE = {"ts": 0.0, "data": None}
 
 
-def strip_tags(raw_html):
-    text = re.sub(r"<br\s*/?>", "\n", raw_html, flags=re.I)
-    text = re.sub(r"<[^>]+>", " ", text)
+def clean_text(raw_html):
+    text = re.sub(r"<[^>]+>", " ", raw_html)
     text = html_lib.unescape(text)
-    lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines()]
-    return [ln for ln in lines if ln]
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def extract_spans(block_html, cls_name):
+    m = re.search(rf'<div[^>]+class="[^"]*\b{cls_name}\b[^"]*"[^>]*>(.*?)</div>', block_html, flags=re.I | re.S)
+    if not m:
+        return []
+    inner = m.group(1)
+    spans = re.findall(r"<span[^>]*>(.*?)</span>", inner, flags=re.I | re.S)
+    if not spans:
+        txt = clean_text(inner)
+        return [txt] if txt else []
+    out = []
+    for sp in spans:
+        txt = clean_text(sp)
+        if txt:
+            out.append(txt)
+    return out
+
+
+def parse_it_cards(gear_html):
+    """Parses all <div class="it">...</div> blocks from Siel.tools /gear page."""
+    cards = []
+    # Split cleanly at each <div class="it"> card boundary
+    chunks = re.split(r'<div\s+class="it(?:\s+[^"]*)?">', gear_html, flags=re.I)
+    for chunk in chunks[1:]:
+        # Bound chunk before next major section
+        card_html = re.split(r'</section>|</article>|<div\s+class="(?:doll|win|gear-sec)', chunk, maxsplit=1)[0]
+
+        name_m = re.search(r'<span[^>]+class="[^"]*\bit-name\b([^"]*)"[^>]*>(.*?)</span>', card_html, flags=re.I | re.S)
+        if not name_m:
+            continue
+        cls_attr = name_m.group(1).lower()
+        name = clean_text(name_m.group(2))
+
+        rarity = "Unique"
+        for k, v in GRADE_MAP.items():
+            if k in cls_attr:
+                rarity = v
+                break
+
+        ench_m = re.search(r'<span[^>]+class="[^"]*\bench\b[^"]*"[^>]*>\s*\+?(\d+)', card_html, flags=re.I | re.S)
+        enchant = int(ench_m.group(1)) if ench_m else None
+
+        exceed_m = re.search(r'<span[^>]+class="[^"]*\bexceed\b[^"]*"[^>]*>(.*?)</span>', card_html, flags=re.I | re.S)
+        exceed = clean_text(exceed_m.group(1)) if exceed_m else ""
+
+        meta_m = re.search(r'<div[^>]+class="[^"]*\bit-meta\b[^"]*"[^>]*>(.*?)</div>', card_html, flags=re.I | re.S)
+        meta = clean_text(meta_m.group(1)) if meta_m else ""
+
+        icon_m = re.search(r'<img[^>]+src="(https://assets\.playnccdn\.com/static-aion2-gamedata/resources/(?:Icon_|UT_)[^"]+)"', card_html, flags=re.I)
+        icon = icon_m.group(1) if icon_m else ""
+
+        # Main stats (it-main)
+        main_stats = extract_spans(card_html, "it-main")
+        if exceed:
+            main_stats.insert(0, exceed)
+        if meta:
+            main_stats.insert(0, meta)
+
+        # Sub stats + Magic Stones (it-sub + it-stones -> Passives)
+        passives = extract_spans(card_html, "it-sub")
+        stones_m = re.search(r'<div[^>]+class="[^"]*\bit-stones\b[^"]*"[^>]*>(.*?)</div>', card_html, flags=re.I | re.S)
+        if stones_m:
+            for st_tag, st_inner in re.findall(r'<span([^>]*)>(.*?)</span>', stones_m.group(1), flags=re.I | re.S):
+                title_m = re.search(r'title="([^"]+)"', st_tag, flags=re.I)
+                stone_type = html_lib.unescape(title_m.group(1)) if title_m else "Manastone"
+                stone_val = clean_text(st_inner)
+                if stone_val:
+                    passives.append(f"[{stone_type}] {stone_val}")
+
+        # Skills (it-skills -> Actives)
+        actives = []
+        skills_m = re.search(r'<div[^>]+class="[^"]*\bit-skills\b[^"]*"[^>]*>(.*?)</div>', card_html, flags=re.I | re.S)
+        if skills_m:
+            for sk_inner in re.findall(r'<span[^>]+class="[^"]*\bsk\b[^"]*"[^>]*>(.*?)</span>', skills_m.group(1), flags=re.I | re.S):
+                sk_txt = clean_text(sk_inner)
+                if sk_txt:
+                    actives.append(sk_txt)
+
+        cards.append({
+            "name": name,
+            "slot": meta.split("·")[0].strip() if "·" in meta else (meta or "Equipment"),
+            "icon": icon,
+            "rarity": rarity,
+            "enchant": enchant,
+            "stats": main_stats,
+            "passives": passives,
+            "actives": actives,
+        })
+    return cards
 
 
 def scrape_siel_gear_page(srv_clean, name_clean):
-    items_by_slot = {}
-    ordered_slots = []
-
+    """Combines overview slot icons/order with detailed <div class="it"> cards from /gear."""
+    overview_items = []
     ov_url = f"{SIEL_ORIGIN}/eu/{srv_clean}/{name_clean}"
     try:
         ov_resp = cffi_requests.get(ov_url, impersonate="chrome", timeout=12)
@@ -64,12 +151,12 @@ def scrape_siel_gear_page(srv_clean, name_clean):
                 img_m = re.search(r'<img[^>]+src="([^"]+)"', inner, flags=re.I)
                 enc_m = re.search(r'<b>\s*\+?(\d+)\s*</b>', inner, flags=re.I)
                 grade = "Unique"
-                for g_cls, g_name in GRADE_MAP.items():
-                    if g_cls in cls_str:
+                for g_key, g_name in GRADE_MAP.items():
+                    if g_key in cls_str.lower():
                         grade = g_name
                         break
                 clean_title = re.sub(r"\s*\+\d+\s*$", "", html_lib.unescape(title_attr)).strip()
-                entry = {
+                overview_items.append({
                     "id": slot_id,
                     "slot": SLOT_NAMES.get(slot_id, f"Slot {slot_id}"),
                     "name": clean_title or SLOT_NAMES.get(slot_id, f"Item {slot_id}"),
@@ -79,77 +166,55 @@ def scrape_siel_gear_page(srv_clean, name_clean):
                     "stats": [],
                     "passives": [],
                     "actives": [],
-                }
-                items_by_slot[slot_id] = entry
-                if slot_id not in ordered_slots:
-                    ordered_slots.append(slot_id)
+                })
     except Exception:
         pass
 
+    gear_cards = []
     gear_url = f"{SIEL_ORIGIN}/eu/{srv_clean}/{name_clean}/gear"
     try:
         g_resp = cffi_requests.get(gear_url, impersonate="chrome", timeout=14)
         if g_resp.status_code == 200:
-            parts = re.split(r'id="slot-(\d+)"', g_resp.text, flags=re.I)
-            for i in range(1, len(parts) - 1, 2):
-                slot_id = parts[i]
-                block = parts[i + 1][:6500]
-                entry = items_by_slot.get(slot_id)
-                if not entry:
-                    img_m = re.search(r'<img[^>]+src="(https://assets\.playnccdn\.com/[^"]+)"', block, flags=re.I)
-                    entry = {
-                        "id": slot_id,
-                        "slot": SLOT_NAMES.get(slot_id, f"Slot {slot_id}"),
-                        "name": SLOT_NAMES.get(slot_id, f"Item {slot_id}"),
-                        "icon": img_m.group(1) if img_m else "",
-                        "rarity": "Unique",
-                        "enchant": None,
-                        "stats": [],
-                        "passives": [],
-                        "actives": [],
-                    }
-                    items_by_slot[slot_id] = entry
-                    ordered_slots.append(slot_id)
-
-                block = re.split(r'</article>|</section>|<div class="gear-card', block, maxsplit=1)[0]
-                lines = strip_tags(block)
-
-                stats, passives, actives = [], [], []
-                mode = "stats"
-                for ln in lines:
-                    low = ln.lower()
-                    if ln == entry["name"] or low in ("details", "gear", "overview"):
-                        continue
-                    if re.match(r"^\+\d+$", ln):
-                        if entry["enchant"] is None:
-                            entry["enchant"] = int(ln[1:])
-                        continue
-                    if any(k in low for k in ("passive", "set effect", "soul imprint", "manastone", "godstone")):
-                        mode = "passives"
-                        passives.append(ln)
-                        continue
-                    if any(k in low for k in ("active", "use:", "skill:", "cooldown", "cast time")):
-                        mode = "actives"
-                        actives.append(ln)
-                        continue
-                    if 2 < len(ln) < 140:
-                        if mode == "passives":
-                            passives.append(ln)
-                        elif mode == "actives":
-                            actives.append(ln)
-                        else:
-                            stats.append(ln)
-
-                if stats:
-                    entry["stats"] = stats[:14]
-                if passives:
-                    entry["passives"] = passives[:10]
-                if actives:
-                    entry["actives"] = actives[:8]
+            gear_cards = parse_it_cards(g_resp.text)
     except Exception:
         pass
 
-    return [items_by_slot[sid] for sid in ordered_slots if sid in items_by_slot]
+    if not overview_items:
+        for idx, c in enumerate(gear_cards, start=1):
+            c["id"] = str(idx)
+        return gear_cards
+
+    # Merge parsed <div class="it"> details into overview items by matching name & enchant
+    used_cards = set()
+    for ov in overview_items:
+        best_idx = None
+        for idx, gc in enumerate(gear_cards):
+            if idx in used_cards:
+                continue
+            if gc["name"].lower() == ov["name"].lower():
+                if ov["enchant"] is None or gc["enchant"] == ov["enchant"]:
+                    best_idx = idx
+                    break
+                if best_idx is None:
+                    best_idx = idx
+        if best_idx is not None:
+            used_cards.add(best_idx)
+            gc = gear_cards[best_idx]
+            ov["stats"] = gc["stats"]
+            ov["passives"] = gc["passives"]
+            ov["actives"] = gc["actives"]
+            if not ov["icon"] and gc["icon"]:
+                ov["icon"] = gc["icon"]
+            if ov["enchant"] is None:
+                ov["enchant"] = gc["enchant"]
+
+    # Append any extra items from /gear not listed in overview
+    for idx, gc in enumerate(gear_cards):
+        if idx not in used_cards:
+            gc["id"] = str(100 + idx)
+            overview_items.append(gc)
+
+    return overview_items
 
 
 def normalize_player(raw_data, name, server):
@@ -291,7 +356,7 @@ class HubHandler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         if parsed.path in ("/", "/health"):
-            return self._send_json(200, {"status": "AION DAEVA HUB Backend Running", "version": "0.0.12", "cached": len(CHAR_STORE)})
+            return self._send_json(200, {"status": "AION DAEVA HUB Backend Running", "version": "0.0.13", "cached": len(CHAR_STORE)})
 
         if parsed.path == "/player":
             name = (qs.get("name") or [""])[0]
@@ -312,5 +377,5 @@ class HubHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("0.0.0.0", PORT), HubHandler)
-    print(f"AION DAEVA HUB Backend v0.0.12 listening on port {PORT}")
+    print(f"AION DAEVA HUB Backend v0.0.13 listening on port {PORT}")
     server.serve_forever()
