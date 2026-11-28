@@ -349,14 +349,20 @@ class HubHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self._send_json(204, {})
+        # 204 must not carry a body
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_GET(self):
         parsed = urlparse(self.path)
         qs = parse_qs(parsed.query)
 
         if parsed.path in ("/", "/health"):
-            return self._send_json(200, {"status": "AION DAEVA HUB Backend Running", "version": "0.0.13", "cached": len(CHAR_STORE)})
+            return self._send_json(200, {"status": "AION DAEVA HUB Backend Running", "version": "0.0.14", "cached": len(CHAR_STORE)})
 
         if parsed.path == "/player":
             name = (qs.get("name") or [""])[0]
@@ -377,5 +383,5 @@ class HubHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("0.0.0.0", PORT), HubHandler)
-    print(f"AION DAEVA HUB Backend v0.0.13 listening on port {PORT}")
+    print(f"AION DAEVA HUB Backend v0.0.14 listening on port {PORT}")
     server.serve_forever()
