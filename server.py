@@ -1,9 +1,10 @@
+import html as html_lib
 import json
 import os
 import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs, urljoin
+from urllib.parse import urlparse, parse_qs
 from curl_cffi import requests as cffi_requests
 
 PORT = int(os.environ.get("PORT", 10000))
@@ -19,102 +20,136 @@ SERVER_IDS = {
     "ariel": "2313", "azphel": "2314",
 }
 
-CHAR_STORE = {
-    "nemon:teiza": {
-        "player": {
-            "name": "Teiza", "server": "Nemon", "level": 45, "className": "Ranger",
-            "combatPower": 148895, "itemLevel": 2509,
-            "stats": {"Might": 23, "Dexterity": 4, "Precision": 50, "Willpower": 14, "Intelligence": 0, "Constitution": 5},
-            "daevanion": [
-                {"name": "Nezekan", "unlocked": 63, "total": 88},
-                {"name": "Zikel", "unlocked": 56, "total": 88},
-                {"name": "Vaizel", "unlocked": 56, "total": 88},
-                {"name": "Triniel", "unlocked": 67, "total": 116},
-                {"name": "Azphel", "unlocked": 21, "total": 152},
-            ],
-            "equipment": [],
-        }
-    }
+SLOT_NAMES = {
+    "1": "Main Hand", "2": "Off Hand", "3": "Helmet", "4": "Pauldrons",
+    "5": "Breastplate", "6": "Greaves", "7": "Gloves", "8": "Boots",
+    "10": "Necklace", "11": "Earring L", "12": "Earring R",
+    "13": "Ring L", "14": "Ring R", "15": "Bracelet L", "16": "Bracelet R",
+    "17": "Belt", "19": "Cloak", "22": "Amulet", "23": "Rune L", "24": "Rune R",
+    "41": "Arcana I", "42": "Arcana II", "43": "Arcana III", "44": "Arcana IV", "45": "Arcana V",
 }
 
+GRADE_MAP = {
+    "g-mythic": "Mythic", "g-ultimate": "Ultimate", "g-eternal": "Eternal",
+    "g-legend": "Legendary", "g-unique": "Unique", "g-fabled": "Fabled",
+    "g-heroic": "Heroic", "g-rare": "Rare", "g-special": "Special",
+}
+
+CHAR_STORE = {}
 NEWS_CACHE = {"ts": 0.0, "data": None}
 
 
-def resolve_icon(val):
-    if isinstance(val, dict):
-        val = val.get("url") or val.get("src") or val.get("path") or val.get("iconUrl")
-    if not isinstance(val, str) or not val.strip():
-        return ""
-    val = val.strip()
-    if val.startswith("//"):
-        return "https:" + val
-    if val.startswith("/"):
-        return urljoin(SIEL_ORIGIN, val)
-    return val
+def strip_tags(raw_html):
+    text = re.sub(r"<br\s*/?>", "\n", raw_html, flags=re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = html_lib.unescape(text)
+    lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines()]
+    return [ln for ln in lines if ln]
 
 
-def extract_equipment_list(root):
-    preferred = {
-        "equipment", "equipments", "gear", "items", "equipmentlist",
-        "equipmentslist", "wornitems", "equippeditems", "equipmentslots"
-    }
-    queue = [root]
-    seen = set()
-    while queue:
-        obj = queue.pop(0)
-        if id(obj) in seen:
-            continue
-        seen.add(id(obj))
-        if isinstance(obj, dict):
-            for k, v in obj.items():
-                if k.lower() in preferred and isinstance(v, list) and any(isinstance(x, dict) for x in v):
-                    return v
-                if isinstance(v, (dict, list)):
-                    queue.append(v)
-        elif isinstance(obj, list):
-            if any(isinstance(x, dict) and any(f in x for f in ("itemName", "iconUrl", "slotName", "enchantLevel", "passives")) for x in obj):
-                return obj
-            for x in obj:
-                if isinstance(x, (dict, list)):
-                    queue.append(x)
-    return []
+def scrape_siel_gear_page(srv_clean, name_clean):
+    items_by_slot = {}
+    ordered_slots = []
 
+    ov_url = f"{SIEL_ORIGIN}/eu/{srv_clean}/{name_clean}"
+    try:
+        ov_resp = cffi_requests.get(ov_url, impersonate="chrome", timeout=12)
+        if ov_resp.status_code == 200:
+            slot_links = re.findall(
+                r'<a[^>]+class="slot\s+([^"]*)"[^>]+title="([^"]*)"[^>]+href="[^"]*#slot-(\d+)"[^>]*>(.*?)</a>',
+                ov_resp.text,
+                flags=re.I | re.S,
+            )
+            for cls_str, title_attr, slot_id, inner in slot_links:
+                img_m = re.search(r'<img[^>]+src="([^"]+)"', inner, flags=re.I)
+                enc_m = re.search(r'<b>\s*\+?(\d+)\s*</b>', inner, flags=re.I)
+                grade = "Unique"
+                for g_cls, g_name in GRADE_MAP.items():
+                    if g_cls in cls_str:
+                        grade = g_name
+                        break
+                clean_title = re.sub(r"\s*\+\d+\s*$", "", html_lib.unescape(title_attr)).strip()
+                entry = {
+                    "id": slot_id,
+                    "slot": SLOT_NAMES.get(slot_id, f"Slot {slot_id}"),
+                    "name": clean_title or SLOT_NAMES.get(slot_id, f"Item {slot_id}"),
+                    "icon": img_m.group(1) if img_m else "",
+                    "rarity": grade,
+                    "enchant": int(enc_m.group(1)) if enc_m else None,
+                    "stats": [],
+                    "passives": [],
+                    "actives": [],
+                }
+                items_by_slot[slot_id] = entry
+                if slot_id not in ordered_slots:
+                    ordered_slots.append(slot_id)
+    except Exception:
+        pass
 
-def normalize_equipment(raw_root):
-    raw_items = extract_equipment_list(raw_root)
-    normalized = []
-    for idx, entry in enumerate(raw_items):
-        if not isinstance(entry, dict):
-            continue
-        item = {**entry.get("item", {}), **entry} if isinstance(entry.get("item"), dict) else entry
-        name = item.get("name") or item.get("itemName") or item.get("displayName") or f"Item {idx + 1}"
-        slot = item.get("slot") or item.get("slotName") or item.get("equipmentSlot") or item.get("type") or "Equipment"
-        icon = resolve_icon(
-            item.get("iconUrl") or item.get("iconURL") or item.get("icon") or
-            item.get("imageUrl") or item.get("image") or item.get("iconPath")
-        )
-        anim = resolve_icon(item.get("animationUrl") or item.get("animUrl") or item.get("effectUrl"))
-        rarity = str(item.get("rarity") or item.get("grade") or item.get("quality") or "Rare")
-        enchant = item.get("enchant") if item.get("enchant") is not None else (
-            item.get("enchantLevel") if item.get("enchantLevel") is not None else item.get("enhanceLevel")
-        )
-        stats = item.get("stats") or item.get("options") or item.get("attributes") or item.get("bonusStats") or []
-        passives = item.get("passives") or item.get("passiveSkills") or item.get("passiveEffects") or item.get("passive") or []
-        actives = item.get("actives") or item.get("activeSkills") or item.get("activeEffects") or item.get("active") or []
+    gear_url = f"{SIEL_ORIGIN}/eu/{srv_clean}/{name_clean}/gear"
+    try:
+        g_resp = cffi_requests.get(gear_url, impersonate="chrome", timeout=14)
+        if g_resp.status_code == 200:
+            parts = re.split(r'id="slot-(\d+)"', g_resp.text, flags=re.I)
+            for i in range(1, len(parts) - 1, 2):
+                slot_id = parts[i]
+                block = parts[i + 1][:6500]
+                entry = items_by_slot.get(slot_id)
+                if not entry:
+                    img_m = re.search(r'<img[^>]+src="(https://assets\.playnccdn\.com/[^"]+)"', block, flags=re.I)
+                    entry = {
+                        "id": slot_id,
+                        "slot": SLOT_NAMES.get(slot_id, f"Slot {slot_id}"),
+                        "name": SLOT_NAMES.get(slot_id, f"Item {slot_id}"),
+                        "icon": img_m.group(1) if img_m else "",
+                        "rarity": "Unique",
+                        "enchant": None,
+                        "stats": [],
+                        "passives": [],
+                        "actives": [],
+                    }
+                    items_by_slot[slot_id] = entry
+                    ordered_slots.append(slot_id)
 
-        normalized.append({
-            "id": str(item.get("id") or item.get("itemId") or idx),
-            "name": str(name),
-            "slot": str(slot),
-            "icon": icon,
-            "anim": anim,
-            "rarity": rarity,
-            "enchant": enchant,
-            "stats": stats,
-            "passives": passives,
-            "actives": actives,
-        })
-    return normalized
+                block = re.split(r'</article>|</section>|<div class="gear-card', block, maxsplit=1)[0]
+                lines = strip_tags(block)
+
+                stats, passives, actives = [], [], []
+                mode = "stats"
+                for ln in lines:
+                    low = ln.lower()
+                    if ln == entry["name"] or low in ("details", "gear", "overview"):
+                        continue
+                    if re.match(r"^\+\d+$", ln):
+                        if entry["enchant"] is None:
+                            entry["enchant"] = int(ln[1:])
+                        continue
+                    if any(k in low for k in ("passive", "set effect", "soul imprint", "manastone", "godstone")):
+                        mode = "passives"
+                        passives.append(ln)
+                        continue
+                    if any(k in low for k in ("active", "use:", "skill:", "cooldown", "cast time")):
+                        mode = "actives"
+                        actives.append(ln)
+                        continue
+                    if 2 < len(ln) < 140:
+                        if mode == "passives":
+                            passives.append(ln)
+                        elif mode == "actives":
+                            actives.append(ln)
+                        else:
+                            stats.append(ln)
+
+                if stats:
+                    entry["stats"] = stats[:14]
+                if passives:
+                    entry["passives"] = passives[:10]
+                if actives:
+                    entry["actives"] = actives[:8]
+    except Exception:
+        pass
+
+    return [items_by_slot[sid] for sid in ordered_slots if sid in items_by_slot]
 
 
 def normalize_player(raw_data, name, server):
@@ -150,8 +185,6 @@ def normalize_player(raw_data, name, server):
                     "total": int(v.get("total") or v.get("max") or 88),
                 })
 
-    equipment = normalize_equipment(raw_data)
-
     return {
         "player": {
             "name": str(real_name),
@@ -162,24 +195,10 @@ def normalize_player(raw_data, name, server):
             "itemLevel": int(float(il)),
             "stats": stats,
             "daevanion": daev_list,
-            "equipment": equipment,
+            "equipment": [],
             "raw": p,
         }
     }
-
-
-def scrape_siel_page_data(srv_clean, name_clean):
-    page_url = f"{SIEL_ORIGIN}/eu/{srv_clean}/{name_clean}"
-    try:
-        resp = cffi_requests.get(page_url, impersonate="chrome", timeout=12)
-        if resp.status_code != 200:
-            return None
-        match = re.search(r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>', resp.text, flags=re.S)
-        if match:
-            return json.loads(match.group(1))
-    except Exception:
-        pass
-    return None
 
 
 def fetch_player(name, server):
@@ -210,10 +229,7 @@ def fetch_player(name, server):
             if resp.status_code == 200:
                 norm = normalize_player(resp.json(), name_clean, srv_clean)
                 if norm and (norm["player"]["combatPower"] > 0 or norm["player"]["itemLevel"] > 0):
-                    if not norm["player"]["equipment"]:
-                        page_json = scrape_siel_page_data(srv_clean, name_clean)
-                        if page_json:
-                            norm["player"]["equipment"] = normalize_equipment(page_json)
+                    norm["player"]["equipment"] = scrape_siel_gear_page(srv_clean, name_clean)
                     CHAR_STORE[key] = norm
                     return norm, None
             elif resp.status_code == 404:
@@ -275,7 +291,7 @@ class HubHandler(BaseHTTPRequestHandler):
         qs = parse_qs(parsed.query)
 
         if parsed.path in ("/", "/health"):
-            return self._send_json(200, {"status": "AION DAEVA HUB Backend Running", "version": "0.0.11", "cached": len(CHAR_STORE)})
+            return self._send_json(200, {"status": "AION DAEVA HUB Backend Running", "version": "0.0.12", "cached": len(CHAR_STORE)})
 
         if parsed.path == "/player":
             name = (qs.get("name") or [""])[0]
@@ -296,5 +312,5 @@ class HubHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = ThreadingHTTPServer(("0.0.0.0", PORT), HubHandler)
-    print(f"AION DAEVA HUB Backend v0.0.11 listening on port {PORT}")
+    print(f"AION DAEVA HUB Backend v0.0.12 listening on port {PORT}")
     server.serve_forever()
